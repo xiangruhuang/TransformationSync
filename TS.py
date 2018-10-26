@@ -58,15 +58,32 @@ def read_npys(shapeid):
         n = max(n, j+1)
 
     ans = np.array(ans, dtype=np.object)
-    print('pairs=', ans)
     return int(n), ans
+
+def read_npy_pair(shapeid, src, tgt):
+    pairs = glob.glob('../rSyncPairwiseCode/matching/{}/{}_{}.npy'.format(shapeid, src, tgt))
+    ans = []
+    n = 0
+    for pair in pairs:
+        i, j = [int(token) for token in pair.strip().split('/')[-1].split('.npy')[0].split('_')]
+        Tij = np.load(pair).item()['R']
+        Rij, tij = __decompose__(Tij)
+        ans.append({'src':i, 'tgt':j, 'R':Rij, 't':tij, 'weight': 1.0})
+        n = max(n, i+1)
+        n = max(n, j+1)
+
+    ans = np.array(ans, dtype=np.object)
+    return int(n), ans
+
 
 def read_npy(shapeid):
     infile = glob.glob('../rSyncPairwiseCode/results/{}.npy'.format(shapeid))
-    edges = np.load(infile).item()['edges']
+    fin = np.load(infile[0])
+    edges = fin.item()['edges']
     for edge in edges:
         edge['weight'] = 1.0
-    Pose = np.load(infile.item()['Pose']
+    print(fin.item())
+    Pose = fin.item()['Pose']
     n = Pose.shape[0]
 
     return n, edges, Pose
@@ -90,9 +107,10 @@ def generate_synthetic(n, sigma):
             Rij = project_so(Rij)
             tij = tij + np.random.randn(3) * sigma
             Tij = __pack__(Rij, tij)
-            edge = {'i':i, 
-                    'j':j,
-                    'Tij': Tij,
+            edge = {'src':i,
+                    'tgt':j,
+                    'R': Rij,
+                    't': tij,
                     'weight': 1.0}
             edges.append(edge)
     edges = np.array(edges)
@@ -110,9 +128,9 @@ def __normalized_adjacency__(n, edges):
     deg = np.zeros(n)
     Adj = np.zeros((n, n))
     for edge in edges:
-        i = edge['i']
-        j = edge['j']
-        Rij, _ = __decompose__(edge['Tij'])
+        i = edge['src']
+        j = edge['tgt']
+        Rij = edge['R']
         weight = edge['weight']
         assert i > j
         A[(i*3):(i+1)*3, (j*3):(j+1)*3] = weight*Rij.T
@@ -189,10 +207,10 @@ def LeastSquares(n, edges):
 
     b = np.zeros(n*3)
     for edge in edges:
-        i = edge['i']
-        j = edge['j']
-        Rij = edge['Tij'][:3, :3]
-        tij = edge['Tij'][:3, 3]
+        i = edge['src']
+        j = edge['tgt']
+        Rij = edge['R']
+        tij = edge['t']
         weight = edge['weight']
         
         #L[i*3:(i+1)*3, j*3:(j+1)*3] -= weight * Rij.T
@@ -203,14 +221,27 @@ def LeastSquares(n, edges):
         b[j*3:(j+1)*3] += weight*tij
 
     t = np.linalg.lstsq(L, b)[0]
-    print(L.shape, t.shape)
-    print('Loss=%f' % np.linalg.norm(L.dot(t) - b, 2))
+    #print(L.shape, t.shape)
+    #print('Loss=%f' % np.linalg.norm(L.dot(t) - b, 2))
     return t
 
-def TruncatedRotSync(n, edges, eps0=-1, decay=0.999, Tstar=None):
-    for itr in range(1000):
-        R, eigengap = Spectral(n, edges)
+def find(x, f):
+    if f[x] == f[f[x]]:
         
+
+def connected(n, edges):
+    f = np.zeros(n)
+    for i in range(n):
+        f[i] = i
+    for edge in edges:
+        i = edge['src']
+        j = edge['tgt']
+        
+
+def TruncatedRotSync(n, edges, eps0=-1, decay=0.999, Tstar=None, max_iter=10000):
+    itr = 0
+    while itr < max_iter:
+        R, eigengap = Spectral(n, edges)
         t = LeastSquares(n, edges)
         
         # print('Translation Loss=%f' % tloss)
@@ -219,30 +250,41 @@ def TruncatedRotSync(n, edges, eps0=-1, decay=0.999, Tstar=None):
         err_max = 0.0
         if eps0 < -0.5:
             for edge in edges:
-                i = edge['i']
-                j = edge['j']
-                Rij = edge['Tij'][:3, :3]
+                i = edge['src']
+                j = edge['tgt']
+                Rij = edge['R']
                 weight = edge['weight']
                 err_e = np.linalg.norm(R[j].dot(R[i].T) - Rij, 2)
                 if eps0 < err_e:
                     eps0 = err_e
             print('setting threshold to %f' % eps0)
-        
+
         numedges = 0
+        max_existing_err = 0.0
+        cover = np.zeros(n)
         for edge in edges:
-            i = edge['i']
-            j = edge['j']
-            Rij = edge['Tij'][:3, :3]
+            i = edge['src']
+            j = edge['tgt']
+            assert i >= j
+            Rij = edge['R']
             weight = edge['weight']
-            err = np.linalg.norm(R[j].dot(R[i].T) - Rij, 2)
+            err = np.linalg.norm(R[j].dot(R[i].T) - Rij, 2) * weight
             err_sum += err
             err_max = max(err_max, err)
-            if err > eps0:
+            if weight < 1e-10:
+                continue
+            if err > eps0 - 1e-12:
                 edge['weight'] = 0.0
+            elif err > max_existing_err - 1e-12:
+                max_existing_err = err
+            
+            cover[i] += edge['weight']
+            cover[j] += edge['weight']
             numedges += edge['weight']
-        
-        print('iter=%d, max(err)=%f, avg(err)=%f, eigengap=%f, #edges=%d, eps0=%f' % (itr, err_max, err_sum/len(edges), eigengap, numedges, eps0))
-        eps0 = eps0 * decay
+        print('iter=%d, max(err)=%f, avg(err)=%f, eigengap=%f, #edges=%d, min_deg=%f, eps0=%f' % (itr, err_max, err_sum/len(edges), eigengap, numedges, min(cover), eps0))
+        while (itr < max_iter) and (eps0 > max_existing_err):
+            eps0 = eps0 * decay
+            itr += 1
         if err_sum <= 1e-1:
             break
     return R
