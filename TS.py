@@ -290,16 +290,16 @@ def TruncatedRotSync(n, edges, eps0=-1, decay=0.999, Tstar=None, max_iter=10000)
     return R
         
 
-""" Ground Truth """
-Tstar = None
-# n, edges, Tstar = generate_synthetic(30, 0.001)
-
-# Rstar = Tstar[:, :3, :3]
-# Rdiag = block_diag(*Rstar)
-# Rvec = np.reshape(Rstar, [3*n, 3])
-
-# n, edges = read_npys('00021')
-n, edges, Tstar = read_npy('00021')
-
-R = TruncatedRotSync(n, edges, Tstar=Tstar)
+#""" Ground Truth """
+#Tstar = None
+## n, edges, Tstar = generate_synthetic(30, 0.001)
+#
+## Rstar = Tstar[:, :3, :3]
+## Rdiag = block_diag(*Rstar)
+## Rvec = np.reshape(Rstar, [3*n, 3])
+#
+## n, edges = read_npys('00021')
+#n, edges, Tstar = read_npy('00021')
+#
+#R = TruncatedRotSync(n, edges, Tstar=Tstar)
 
