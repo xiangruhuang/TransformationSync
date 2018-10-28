@@ -225,8 +225,8 @@ def LeastSquares(n, edges):
     #print('Loss=%f' % np.linalg.norm(L.dot(t) - b, 2))
     return t
 
-def find(x, f):
-    if f[x] == f[f[x]]:
+#def find(x, f):
+#    if f[x] == f[f[x]]:
         
 
 def connected(n, edges):
